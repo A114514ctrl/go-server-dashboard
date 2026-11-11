@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>轻量级服务监控大屏（go语言）</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+body {
+    background-color: #0a0a0a;
+    color: #00ff41;
+    font-family: 'JetBrains Mono', monospace;
+    background-image:
+        radial-gradient(circle at 15% 50%, rgba(0,243,255,0.04), transparent 40%),
+        radial-gradient(circle at 85% 30%, rgba(0,255,65,0.04), transparent 40%),
+        linear-gradient(rgba(26,26,26,0.2) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(26,26,26,0.2) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 15px 15px, 15px 15px;
+    background-attachment: fixed;
+}
+
+.crt::before {
+    content: " ";
+    display: block; position: absolute; top:0; left:0; bottom:0; right:0;
+    background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.1) 50%);
+    z-index: 50; background-size: 100% 2px;
+    pointer-events: none; opacity: 0.5;
+}
+
+.neon-glow { text-shadow: 0 0 5px rgba(0,255,65,0.8), 0 0 15px rgba(0,255,65,0.5), 0 0 25px rgba(0,255,65,0.3); color: #00ff41; }
+.neon-glow-cyan { text-shadow: 0 0 5px rgba(0,243,255,0.8), 0 0 15px rgba(0,243,255,0.5), 0 0 25px rgba(0,243,255,0.3); color: #00f3ff; }
+.neon-glow-red { text-shadow: 0 0 5px rgba(255,49,49,0.8), 0 0 15px rgba(255,49,49,0.5); color: #ff3131; }
+
+.glass-panel {
+    background: rgba(10,10,10,0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37);
+}
+.glass-panel-green {
+    box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37), inset 0 0 20px rgba(0,255,65,0.03);
+    border: 1px solid rgba(0,255,65,0.15);
+}
+.glass-panel-cyan {
+    box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37), inset 0 0 20px rgba(0,243,255,0.03);
+    border: 1px solid rgba(0,243,255,0.15);
+}
+
+.progress-circle { transform: rotate(-90deg); filter: drop-shadow(0 0 6px rgba(0,255,65,0.6)); }
+.progress-circle-cyan { transform: rotate(-90deg); filter: drop-shadow(0 0 6px rgba(0,243,255,0.6)); }
+
+.hud-bracket-tl { position:absolute; top:-1px; left:-1px; width:12px; height:12px; border-top:2px solid #00ff41; border-left:2px solid #00ff41; box-shadow:-2px -2px 6px rgba(0,255,65,0.4); }
+.hud-bracket-tr { position:absolute; top:-1px; right:-1px; width:12px; height:12px; border-top:2px solid #00ff41; border-right:2px solid #00ff41; box-shadow:2px -2px 6px rgba(0,255,65,0.4); }
+.hud-bracket-bl { position:absolute; bottom:-1px; left:-1px; width:12px; height:12px; border-bottom:2px solid #00ff41; border-left:2px solid #00ff41; box-shadow:-2px 2px 6px rgba(0,255,65,0.4); }
+.hud-bracket-br { position:absolute; bottom:-1px; right:-1px; width:12px; height:12px; border-bottom:2px solid #00ff41; border-right:2px solid #00ff41; box-shadow:2px 2px 6px rgba(0,255,65,0.4); }
+
+.hud-bracket-tl-cyan { border-color:#00f3ff; box-shadow:-2px -2px 6px rgba(0,243,255,0.4); }
+.hud-bracket-tr-cyan { border-color:#00f3ff; box-shadow:2px -2px 6px rgba(0,243,255,0.4); }
+.hud-bracket-bl-cyan { border-color:#00f3ff; box-shadow:-2px 2px 6px rgba(0,243,255,0.4); }
+.hud-bracket-br-cyan { border-color:#00f3ff; box-shadow:2px 2px 6px rgba(0,243,255,0.4); }
+
+.scanline-overlay {
+    background: repeating-linear-gradient(to bottom, transparent 0%, rgba(0,255,65,0.02) 0.5%, transparent 1%);
+    animation: scan 10s linear infinite;
+}
+@keyframes scan { 0%{background-position:0 0} 100%{background-position:0 100vh} }
+
+.hud-crosshair {
+    position:absolute; width:20px; height:20px; pointer-events:none; opacity:0.5;
+    filter:drop-shadow(0 0 2px rgba(0,255,65,0.5));
+}
+.hud-crosshair::before,.hud-crosshair::after { content:''; position:absolute; background:currentColor; }
+.hud-crosshair::before { top:50%; left:0; right:0; height:1px; transform:translateY(-50%); }
+.hud-crosshair::after { left:50%; top:0; bottom:0; width:1px; transform:translateX(-50%); }
+
+.progress-bar-fill { transition: stroke-dasharray 0.5s ease; }
+.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+</style>
+</head>
+<body class="bg-background crt text-surface-tint min-h-screen flex flex-col pb-16 relative">
+<div class="absolute inset-0 scanline-overlay pointer-events-none z-10"></div>
+
+<!-- TopAppBar -->
+<header class="glass-panel border-b border-surface-tint/20 w-full top-0 z-40 sticky">
+<div class="flex justify-between items-center w-full px-4 h-12 relative">
+<div class="hud-crosshair text-surface-tint left-2 top-2 w-4 h-4"></div>
+<div class="font-bold tracking-tighter neon-glow ml-4 text-[18px]">
+    SERVER_STATUS_v1.0<span class="text-xs text-on-surface-variant font-normal tracking-widest ml-2 opacity-60">// CORE_SYS</span>
+</div>
+<div class="flex items-center gap-3 text-surface-tint">
+<div class="hidden sm:flex text-[10px] text-surface-tint/70 mr-4 flex-col text-right leading-tight" style="text-shadow:0 0 2px rgba(0,255,65,0.3)">
+    <span>SEC_LEVEL: ALPHA</span>
+    <span>ENCRYPTION: AES-256</span>
+</div>
+<button class="hover:bg-surface-tint/20 hover:text-surface-tint transition-colors p-1.5 rounded-sm border border-surface-tint/30 flex items-center justify-center relative glass-panel">
+    <span class="hud-bracket-tl opacity-70"></span>
+    <span class="hud-bracket-br opacity-70"></span>
+    <span class="material-symbols-outlined text-[18px]">schedule</span>
+</button>
+<button class="hover:bg-surface-tint/20 hover:text-surface-tint transition-colors p-1.5 rounded-sm border border-surface-tint/30 flex items-center justify-center relative glass-panel">
+    <span class="hud-bracket-tl opacity-70"></span>
+    <span class="hud-bracket-br opacity-70"></span>
+    <span class="material-symbols-outlined text-[18px]">update</span>
+</button>
+</div>
+</div>
+</header>
+
+<!-- Main Content -->
+<main class="flex-grow p-2 md:p-4 max-w-[1440px] mx-auto w-full flex flex-col gap-4 relative z-20">
+
+<!-- Header Info -->
+<div class="flex justify-between items-end border-b border-white/10 pb-1 px-1">
+<h1 class="font-bold neon-glow text-[20px]">系统指标</h1>
+<div class="text-[10px] text-on-surface-variant flex items-center gap-2 opacity-80 tracking-wider">
+    <span class="inline-block w-2 h-2 bg-surface-tint animate-pulse rounded-full" style="box-shadow:0 0 8px #00ff41"></span>
+    最后更新：<span class="text-surface-tint neon-glow" id="last-updated">--</span>
+</div>
+</div>
+
+<!-- Gauges Grid: 4 列 -->
+<div class="grid grid-cols-1 gap-4 md:grid-cols-4">
+
+<!-- CPU Gauge -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col items-center justify-center relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="text-[10px] text-surface-tint opacity-80 absolute top-2 left-2 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[CPU 使用率]</div>
+<div class="text-[8px] text-surface-tint opacity-50 absolute top-2 right-2">NODE_01</div>
+<div class="relative w-28 h-28 flex items-center justify-center mt-4">
+<svg class="w-full h-full progress-circle" viewBox="0 0 100 100">
+<circle cx="50" cy="50" fill="none" r="46" stroke="rgba(0,255,65,0.15)" stroke-dasharray="2 4" stroke-width="2"></circle>
+<circle cx="50" cy="50" fill="none" r="38" stroke="rgba(255,255,255,0.05)" stroke-dasharray="1 3" stroke-width="6"></circle>
+<circle id="cpu-progress" cx="50" cy="50" fill="none" r="38" stroke="currentColor" stroke-dasharray="0 238.76" stroke-linecap="square" stroke-width="6" class="progress-bar-fill" style="color:#00ff41"></circle>
+<circle cx="50" cy="50" fill="none" opacity="0.9" r="38" stroke="#00ff41" stroke-dasharray="0 238.76" stroke-width="2"></circle>
+<circle cx="50" cy="50" fill="none" r="28" stroke="rgba(0,255,65,0.3)" stroke-dasharray="10 5" stroke-width="1"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center font-bold neon-glow text-[22px]" id="cpu-val">--%</div>
+</div>
+<div class="mt-3 text-[11px] text-surface-tint opacity-90 border-t border-white/10 pt-2 w-full text-center" style="text-shadow:0 0 2px rgba(0,255,65,0.3)" id="cpu-cores">-- 核活动中</div>
+</div>
+
+<!-- RAM Gauge -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col items-center justify-center relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="text-[10px] text-surface-tint opacity-80 absolute top-2 left-2 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[内存使用率]</div>
+<div class="text-[8px] text-surface-tint opacity-50 absolute top-2 right-2">BANK_A</div>
+<div class="relative w-28 h-28 flex items-center justify-center mt-4">
+<svg class="w-full h-full progress-circle" viewBox="0 0 100 100">
+<circle cx="50" cy="50" fill="none" r="46" stroke="rgba(0,255,65,0.15)" stroke-dasharray="4 2" stroke-width="2"></circle>
+<circle cx="50" cy="50" fill="none" r="38" stroke="rgba(255,255,255,0.05)" stroke-dasharray="2 2" stroke-width="6"></circle>
+<circle id="mem-progress" cx="50" cy="50" fill="none" r="38" stroke="currentColor" stroke-dasharray="0 238.76" stroke-width="6" class="progress-bar-fill" style="color:#00ff41"></circle>
+<circle cx="50" cy="50" fill="none" opacity="0.9" r="38" stroke="#00ff41" stroke-dasharray="0 238.76" stroke-width="2"></circle>
+<circle cx="50" cy="50" fill="none" r="30" stroke="rgba(0,255,65,0.4)" stroke-dasharray="2 4" stroke-width="1"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center font-bold neon-glow text-[22px]" id="mem-val">--%</div>
+</div>
+<div class="mt-3 text-[11px] text-surface-tint opacity-90 border-t border-white/10 pt-2 w-full text-center" style="text-shadow:0 0 2px rgba(0,255,65,0.3)" id="mem-detail">-- / --</div>
+</div>
+
+<!-- DISK Gauge -->
+<div class="glass-panel glass-panel-cyan p-4 flex flex-col items-center justify-center relative hover:border-secondary-fixed-dim/40 transition-colors overflow-hidden rounded-sm" style="background:linear-gradient(135deg, rgba(0,243,255,0.05) 0%, rgba(0,243,255,0) 100%)">
+<div class="hud-bracket-tl hud-bracket-tl-cyan"></div><div class="hud-bracket-tr hud-bracket-tr-cyan"></div><div class="hud-bracket-bl hud-bracket-bl-cyan"></div><div class="hud-bracket-br hud-bracket-br-cyan"></div>
+<div class="text-[10px] text-secondary-fixed-dim opacity-80 absolute top-2 left-2 tracking-widest" style="text-shadow:0 0 2px rgba(0,243,255,0.5); color:#00f3ff">[磁盘使用率]</div>
+<div class="text-[8px] opacity-50 absolute top-2 right-2" style="color:#00f3ff">/</div>
+<div class="relative w-28 h-28 flex items-center justify-center mt-4">
+<svg class="w-full h-full progress-circle-cyan" viewBox="0 0 100 100">
+<circle cx="50" cy="50" fill="none" r="46" stroke="rgba(0,243,255,0.15)" stroke-dasharray="1 5" stroke-width="4"></circle>
+<circle cx="50" cy="50" fill="none" r="38" stroke="rgba(255,255,255,0.05)" stroke-width="6"></circle>
+<circle id="disk-progress" cx="50" cy="50" fill="none" r="38" stroke="currentColor" stroke-dasharray="0 238.76" stroke-linecap="round" stroke-width="6" class="progress-bar-fill" style="color:#00f3ff"></circle>
+<circle cx="50" cy="50" fill="none" opacity="0.9" r="38" stroke="#00f3ff" stroke-dasharray="0 238.76" stroke-width="2"></circle>
+<circle cx="50" cy="50" fill="none" r="28" stroke="rgba(0,243,255,0.3)" stroke-dasharray="5 5" stroke-width="1"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center font-bold neon-glow-cyan text-[22px]" id="disk-val">--%</div>
+</div>
+<div class="mt-3 text-[11px] opacity-90 border-t border-white/10 pt-2 w-full text-center" style="text-shadow:0 0 2px rgba(0,243,255,0.3); color:#00f3ff" id="disk-detail">-- / --</div>
+</div>
+
+<!-- Network Bandwidth Card -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col justify-between relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm min-h-[160px]" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="text-[10px] text-surface-tint opacity-80 absolute top-2 left-2 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[网络带宽]</div>
+<div class="text-[8px] text-surface-tint opacity-50 absolute top-2 right-2">ETH_0</div>
+<div class="mt-8 space-y-4 flex flex-col justify-center h-full">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+    <span class="material-symbols-outlined text-surface-tint text-[18px] neon-glow">upload</span>
+    <span class="text-[11px] text-surface-tint/70">上行带宽</span>
+</div>
+<div class="font-bold neon-glow text-[18px]" id="net-up">-- KB/s</div>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+    <span class="material-symbols-outlined text-surface-tint text-[18px] neon-glow">download</span>
+    <span class="text-[11px] text-surface-tint/70">下行带宽</span>
+</div>
+<div class="font-bold neon-glow text-[18px]" id="net-down">-- KB/s</div>
+</div>
+</div>
+<div class="mt-3 text-[10px] text-surface-tint opacity-50 border-t border-white/10 pt-2 w-full text-right">DUPLEX: FULL</div>
+</div>
+</div>
+
+<!-- Trends Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+
+<!-- CPU Trend -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm min-h-[180px]" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="flex justify-between items-start mb-2 relative z-10">
+<div class="text-[10px] text-surface-tint opacity-80 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[CPU 趋势]</div>
+<div class="text-[8px] text-surface-tint opacity-50">30 MIN HISTORY</div>
+</div>
+<div class="flex-grow w-full h-full relative mt-2">
+<svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 400 100">
+<defs>
+<linearGradient id="cpu-gradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#00ff41" stop-opacity="0.8"></stop>
+<stop offset="100%" stop-color="#00ff41" stop-opacity="0"></stop>
+</linearGradient>
+</defs>
+<path d="M 0 25 L 400 25 M 0 50 L 400 50 M 0 75 L 400 75" fill="none" stroke="rgba(0,255,65,0.1)" stroke-dasharray="2 4" stroke-width="1"></path>
+<path d="M 100 0 L 100 100 M 200 0 L 200 100 M 300 0 L 300 100" fill="none" stroke="rgba(0,255,65,0.1)" stroke-dasharray="2 4" stroke-width="1"></path>
+<path id="cpu-trend-line" d="M 0 80 Q 20 70, 40 85 T 80 60 T 120 75 T 160 40 T 200 50 T 240 30 T 280 60 T 320 20 T 360 40 T 400 35" fill="none" stroke="#00ff41" stroke-width="2" style="filter:drop-shadow(0 0 5px rgba(0,255,65,0.8))"></path>
+<path id="cpu-trend-fill" d="M 0 80 Q 20 70, 40 85 T 80 60 T 120 75 T 160 40 T 200 50 T 240 30 T 280 60 T 320 20 T 360 40 T 400 35 L 400 100 L 0 100 Z" fill="url(#cpu-gradient)" opacity="0.2"></path>
+</svg>
+</div>
+</div>
+
+<!-- Memory Trend -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm min-h-[180px]" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="flex justify-between items-start mb-2 relative z-10">
+<div class="text-[10px] text-surface-tint opacity-80 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[内存趋势]</div>
+<div class="text-[8px] text-surface-tint opacity-50">30 MIN HISTORY</div>
+</div>
+<div class="flex-grow w-full h-full relative mt-2">
+<svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 400 100">
+<defs>
+<linearGradient id="mem-gradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#00ff41" stop-opacity="0.8"></stop>
+<stop offset="100%" stop-color="#00ff41" stop-opacity="0"></stop>
+</linearGradient>
+</defs>
+<path d="M 0 25 L 400 25 M 0 50 L 400 50 M 0 75 L 400 75" fill="none" stroke="rgba(0,255,65,0.1)" stroke-dasharray="2 4" stroke-width="1"></path>
+<path d="M 100 0 L 100 100 M 200 0 L 200 100 M 300 0 L 300 100" fill="none" stroke="rgba(0,255,65,0.1)" stroke-dasharray="2 4" stroke-width="1"></path>
+<path id="mem-trend-line" d="M 0 60 L 40 58 L 80 62 L 120 55 L 160 50 L 200 52 L 240 45 L 280 48 L 320 40 L 360 42 L 400 38" fill="none" stroke="#00ff41" stroke-width="2" style="filter:drop-shadow(0 0 5px rgba(0,255,65,0.8))"></path>
+<path id="mem-trend-fill" d="M 0 60 L 40 58 L 80 62 L 120 55 L 160 50 L 200 52 L 240 45 L 280 48 L 320 40 L 360 42 L 400 38 L 400 100 L 0 100 Z" fill="url(#mem-gradient)" opacity="0.2"></path>
+</svg>
+</div>
+</div>
+</div>
+
+<!-- Service Health Section -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+<!-- Service Health Table -->
+<div class="lg:col-span-2 flex flex-col gap-2">
+<div class="flex justify-between items-end border-b border-white/10 pb-1 mb-1 relative">
+<div class="hud-crosshair text-surface-tint left-0 top-1 w-3 h-3"></div>
+<h2 class="text-[11px] text-surface-tint tracking-widest ml-4 opacity-90">服务健康矩阵</h2>
+<span class="text-[9px] text-surface-tint/60" id="services-status-label">检测中...</span>
+</div>
+<div class="glass-panel glass-panel-green relative rounded-sm">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div id="services-list">
+    <div class="p-4 text-center text-surface-tint/50 text-[12px]">正在加载服务状态...</div>
+</div>
+</div>
+</div>
+
+<!-- Right Column: Uptime + Weather -->
+<div class="flex flex-col gap-4 h-full">
+
+<!-- Uptime -->
+<div class="glass-panel glass-panel-green p-3 flex flex-col justify-center relative rounded-sm">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<h2 class="text-[11px] text-surface-tint/80 tracking-widest border-b border-white/10 pb-1 mb-2">系统运行时间</h2>
+<div class="font-bold text-surface-tint text-center neon-glow tracking-widest text-[20px]" id="uptime-display">--d --h --m <span class="text-surface-tint/60 text-[14px]">--s</span></div>
+</div>
+
+<!-- Weather Card -->
+<div class="glass-panel glass-panel-green p-4 flex flex-col justify-between relative hover:border-surface-tint/40 transition-colors overflow-hidden rounded-sm min-h-[200px]" style="background:linear-gradient(135deg, rgba(0,255,65,0.05) 0%, rgba(0,255,65,0) 100%)">
+<div class="hud-bracket-tl"></div><div class="hud-bracket-tr"></div><div class="hud-bracket-bl"></div><div class="hud-bracket-br"></div>
+<div class="text-[10px] text-surface-tint opacity-80 absolute top-2 left-2 tracking-widest" style="text-shadow:0 0 2px rgba(0,255,65,0.5)">[天气状态]</div>
+<div class="text-[8px] text-surface-tint opacity-50 absolute top-2 right-2">NODE_LOC</div>
+<div class="mt-8 flex items-center justify-around h-full">
+<div class="flex flex-col items-center">
+    <span class="material-symbols-outlined text-[32px] text-surface-tint neon-glow animate-pulse">partly_cloudy_day</span>
+    <span class="text-[10px] text-surface-tint/70 mt-1 uppercase tracking-tighter">上海 / SHANGHAI</span>
+</div>
+<div class="flex flex-col items-end">
+    <div class="font-bold neon-glow leading-none" style="font-size:28px"><span id="weather-temp">24</span><span class="text-[18px] align-top">°C</span></div>
+    <div class="mt-2 space-y-0.5">
+    <div class="text-[9px] text-surface-tint/60 text-right">湿度: <span id="weather-hum">45</span>%</div>
+    <div class="text-[9px] text-surface-tint/60 text-right">风速: <span id="weather-wind">3</span>级</div>
+    </div>
+</div>
+</div>
+<div class="mt-3 text-[10px] text-surface-tint opacity-50 border-t border-white/10 pt-2 w-full text-right uppercase">DATA_STABLE: SYNC</div>
+</div>
+
+</div>
+</div>
+
+</main>
+
+<!-- Footer -->
+<footer class="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-2 glass-panel border-t border-white/10">
+<div class="text-[10px] text-surface-tint flex items-center gap-2 opacity-90" style="text-shadow:0 0 2px rgba(0,255,65,0.4)">
+    <span class="inline-block w-1.5 h-1.5 bg-surface-tint animate-pulse" style="box-shadow:0 0 5px #00ff41"></span>
+    CORE_SYSTEM_V1.0 // 状态：<span id="footer-status">扫描中...</span>
+</div>
+<div class="flex gap-4 text-[9px] uppercase tracking-widest text-surface-tint/60">
+    <a class="hover:text-surface-tint transition-all duration-300 cursor-pointer" id="version-tag">v1.0.4-STABLE</a>
+    <span class="opacity-30">|</span>
+    <a class="hover:text-surface-tint transition-all duration-300 cursor-pointer">系统日志</a>
+    <span class="opacity-30">|</span>
+    <a class="hover:text-surface-tint transition-all duration-300 cursor-pointer">指标导出</a>
+</div>
+</footer>
+
+<script>
+const CIRCLE_LEN = 238.76;
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function updateRing(id, percent) {
+    const ring = document.getElementById(id);
+    if (!ring) return;
+    const pct = Math.min(100, Math.max(0, percent));
+    const dashLength = (pct / 100) * CIRCLE_LEN;
+    ring.setAttribute('stroke-dasharray', dashLength + ' ' + (CIRCLE_LEN - dashLength));
+    ring.style.color = pct >= 90 ? '#ff3131' : pct >= 70 ? '#00f3ff' : '#00ff41';
+}
+
+function formatKBytes(kbs) {
+    if (kbs == null) return '-- KB/s';
+    if (kbs >= 1024) return (kbs / 1024).toFixed(1) + ' MB/s';
+    return kbs.toFixed(1) + ' KB/s';
+}
+
+function formatUptime(secTotal) {
+    const d = Math.floor(secTotal / 86400);
+    const h = Math.floor((secTotal % 86400) / 3600);
+    const m = Math.floor((secTotal % 3600) / 60);
+    const s = secTotal % 60;
+    return { d, h, m, s, html: d + 'd ' + pad(h) + 'h ' + pad(m) + 'm <span class="text-surface-tint/60 text-[14px]">' + pad(s) + 's</span>' };
+}
+
+// CPU/MEM 趋势缓冲（30 分钟历史，折算到 60 个采样点）
+const TREND_POINTS = 60;
+const cpuTrend = [], memTrend = [];
+
+function pushTrend(arr, value) {
+    arr.push(value);
+    if (arr.length > TREND_POINTS) arr.shift();
+    while (arr.length < TREND_POINTS) arr.unshift(value);
+    // 渲染曲线：把数组转成 SVG path
+    const max = 100;
+    const stepX = 400 / (TREND_POINTS - 1);
+    let d = '', dFill = '';
+    arr.forEach(function (v, i) {
+        const x = (i * stepX).toFixed(2);
+        const y = (100 - (v / max) * 100).toFixed(2);
+        d += (i === 0 ? 'M ' : ' L ') + x + ' ' + y;
+    });
+    dFill = d + ' L 400 100 L 0 100 Z';
+    return { d, dFill };
+}
+
+function renderTrend(lineId, fillId, arr) {
+    const r = pushTrend(arr, arr[arr.length - 1] || 0);
+    document.getElementById(lineId).setAttribute('d', r.d);
+    document.getElementById(fillId).setAttribute('d', r.dFill);
+}
+
+let bootSec = 0;
+async function fetchSystem() {
+    try {
+        const res = await fetch('/api/system');
+        const json = await res.json();
+        if (json.code !== 200 || !json.data) return;
+        const d = json.data;
+
+        // CPU
+        document.getElementById('cpu-val').textContent = d.cpu_percent.toFixed(1) + '%';
+        document.getElementById('cpu-cores').textContent = d.cores + ' 核活动中';
+        updateRing('cpu-progress', d.cpu_percent);
+        cpuTrend.push(d.cpu_percent);
+        if (cpuTrend.length > TREND_POINTS) cpuTrend.shift();
+        renderTrend('cpu-trend-line', 'cpu-trend-fill', cpuTrend);
+
+        // 内存
+        document.getElementById('mem-val').textContent = d.memory_percent.toFixed(1) + '%';
+        document.getElementById('mem-detail').innerHTML =
+            '<span class="neon-glow">' + d.memory_used_gb + 'GB</span> / <span class="opacity-70">' + d.memory_total_gb + 'GB</span>';
+        updateRing('mem-progress', d.memory_percent);
+        memTrend.push(d.memory_percent);
+        if (memTrend.length > TREND_POINTS) memTrend.shift();
+        renderTrend('mem-trend-line', 'mem-trend-fill', memTrend);
+
+        // 磁盘
+        document.getElementById('disk-val').textContent = d.disk_percent.toFixed(1) + '%';
+        document.getElementById('disk-detail').innerHTML =
+            '<span class="neon-glow-cyan">' + d.disk_used_gb + 'GB</span> / <span class="opacity-70">' + d.disk_total_gb + 'GB</span>';
+        updateRing('disk-progress', d.disk_percent);
+
+        // 网络
+        document.getElementById('net-up').textContent = formatKBytes(d.net_up_kbs);
+        document.getElementById('net-down').textContent = formatKBytes(d.net_down_kbs);
+
+        // 运行时间（用 d.h.m.s，精确到秒需要后端补；这里用 hours 折算）
+        bootSec = d.uptime_hours * 3600;
+        const u = formatUptime(bootSec);
+        document.getElementById('uptime-display').innerHTML = u.html;
+
+        // 客户端秒数自增（让大屏秒数持续走动）
+        bootSec += 1;
+
+        // 时间戳
+        const now = new Date();
+        document.getElementById('last-updated').textContent =
+            now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + ' ' +
+            pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+    } catch (e) {
+        console.error('fetchSystem error:', e);
+    }
+}
+
+async function fetchServices() {
+    try {
+        const res = await fetch('/api/services');
+        const json = await res.json();
+        if (json.code !== 200 || !json.data) return;
+        const items = json.data;
+        const container = document.getElementById('services-list');
+        let html = '';
+        items.forEach(function (svc, idx) {
+            const bgClass = idx % 2 === 1 ? 'bg-white/5' : '';
+            const isUp = svc.status === 'up';
+            const statusClass = isUp ? 'neon-glow' : 'neon-glow-red';
+            const statusText = isUp ? '运行中 (200 OK)' : '停止 (503)';
+            const latencyText = isUp ? (svc.latency_ms + 'ms') : '超时';
+            html += '<div class="flex flex-col sm:flex-row sm:items-center justify-between p-2 border-b border-white/5 hover:bg-white/5 transition-colors group ' + bgClass + '">' +
+                '<div class="flex items-center gap-2">' +
+                    '<span class="text-surface-tint text-[8px] group-hover:animate-pulse">▶</span>' +
+                    '<span class="text-[12px] text-surface-tint/90">' + svc.name + '</span>' +
+                '</div>' +
+                '<div class="flex items-center gap-6 mt-1 sm:mt-0 text-[12px]">' +
+                    '<span class="' + statusClass + ' text-[11px]">' + statusText + '</span>' +
+                    '<span class="text-surface-tint/50 w-16 text-right">' + latencyText + '</span>' +
+                '</div>' +
+            '</div>';
+        });
+        container.innerHTML = html;
+
+        const upCount = items.filter(function (s) { return s.status === 'up'; }).length;
+        const statusLabel = upCount === items.length ? '状态：最佳' : '状态：' + upCount + '/' + items.length + ' 正常';
+        document.getElementById('services-status-label').textContent = statusLabel;
+        document.getElementById('footer-status').textContent = upCount === items.length ? '运行中' : '部分异常';
+    } catch (e) {
+        console.error('fetchServices error:', e);
+    }
+}
+
+function startPolling() {
+    fetchSystem();
+    fetchServices();
+    setInterval(fetchSystem, 1000);
+    setInterval(fetchServices, 5000);
+}
+
+startPolling();
+</script>
+</body>
+</html>
